@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import math
 import sys
+import traceback
+from collections import deque
 from dataclasses import dataclass
 
 import pygame
@@ -49,6 +51,7 @@ MINIMAP_PADDING = 12
 CEILING_COLOR = (50, 60, 90)
 FLOOR_COLOR = (35, 30, 24)
 BG_TEXT_COLOR = (220, 220, 220)
+DEBUG_TEXT_COLOR = (120, 255, 120)
 
 # 0 = empty space, 1 = wall
 WORLD_MAP = [
@@ -71,6 +74,34 @@ WORLD_MAP = [
 ]
 MAP_W = len(WORLD_MAP[0])
 MAP_H = len(WORLD_MAP)
+
+
+class DebugConsole:
+    """Simple in-game + terminal debug console for input and runtime messages."""
+
+    def __init__(self, max_lines: int = 8):
+        self.lines: deque[str] = deque(maxlen=max_lines)
+
+    def log(self, message: str) -> None:
+        self.lines.append(message)
+        print(f"[DEBUG] {message}")
+
+    def draw(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
+        if not self.lines:
+            return
+
+        line_height = font.get_linesize()
+        panel_w = 420
+        panel_h = line_height * len(self.lines) + 8
+        panel_x = SCREEN_WIDTH - panel_w - 12
+        panel_y = 12
+
+        pygame.draw.rect(screen, (0, 0, 0), (panel_x, panel_y, panel_w, panel_h))
+        pygame.draw.rect(screen, (90, 90, 90), (panel_x, panel_y, panel_w, panel_h), 1)
+
+        for i, line in enumerate(self.lines):
+            text = font.render(line, True, DEBUG_TEXT_COLOR)
+            screen.blit(text, (panel_x + 6, panel_y + 4 + i * line_height))
 
 
 @dataclass
@@ -255,13 +286,18 @@ def draw_hud(screen: pygame.Surface, clock: pygame.time.Clock, font: pygame.font
     screen.blit(controls_surf, (12, SCREEN_HEIGHT - 28))
 
 
-def handle_input(player: Player, dt: float) -> bool:
+def handle_input(player: Player, dt: float, debug_console: DebugConsole) -> bool:
     """Handle events and keyboard/mouse input. Returns False when quitting."""
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
+            debug_console.log("QUIT event received")
             return False
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            debug_console.log("ESC pressed -> exit")
             return False
+        if event.type == pygame.KEYDOWN:
+            key_name = pygame.key.name(event.key)
+            debug_console.log(f"KEYDOWN: {key_name}")
 
     keys = pygame.key.get_pressed()
 
@@ -301,6 +337,8 @@ def main() -> None:
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 20)
+    debug_font = pygame.font.SysFont("consolas", 16)
+    debug_console = DebugConsole(max_lines=10)
 
     # Hide mouse cursor and lock for FPS-like control.
     pygame.mouse.set_visible(False)
@@ -309,19 +347,23 @@ def main() -> None:
 
     # Start facing west, with camera plane defining FOV.
     player = Player(
-        x=3.5,
-        y=3.5,
+        x=2.5,
+        y=2.5,
         dir_x=-1.0,
         dir_y=0.0,
         plane_x=0.0,
         plane_y=FOV_SCALE,
     )
 
+    debug_console.log("Game initialized")
+    debug_console.log("W/S move, A/D strafe, Mouse/Arrows rotate, ESC quit")
+    debug_console.log(f"Spawn position: ({player.x:.1f}, {player.y:.1f})")
+
     running = True
     while running:
         dt = min(clock.tick(FPS_TARGET) / 1000.0, 0.05)
 
-        running = handle_input(player, dt)
+        running = handle_input(player, dt, debug_console)
 
         # Draw ceiling and floor first.
         screen.fill(CEILING_COLOR)
@@ -333,6 +375,7 @@ def main() -> None:
         # 2D UI overlays.
         draw_minimap(screen, player)
         draw_hud(screen, clock, font)
+        debug_console.draw(screen, debug_font)
 
         pygame.display.flip()
 
@@ -341,7 +384,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print("\n[ERROR] Unhandled exception during runtime:")
+        print(exc)
+        traceback.print_exc()
+        raise
 
 
 # ============================================================
